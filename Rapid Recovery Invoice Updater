@@ -1,0 +1,224 @@
+from bs4 import BeautifulSoup as bs
+import requests
+from webbot import *
+from time import sleep
+from tkinter import *
+
+one_username = 'empty'
+one_password = 'empty'
+two_username = 'empty'
+two_password = 'empty'
+
+invoice_number = 0
+invoice_number = str(invoice_number)
+
+
+def button_func():
+    submit_login()
+    execute_process()
+
+
+def prepend(urls, drr_site):
+    drr_site += '{0}'
+    urls = [drr_site.format(i) for i in urls]
+    return (urls)
+
+
+def submit_login():
+    global one_username
+    global one_password
+    global two_username
+    global two_password
+    one_username = drr_1_loginbox.get('1.0', END)
+    one_password = drr_1_password.get('1.0', END)
+    two_username = drr_2_loginbox.get('1.0', END)
+    two_password = drr_2_password.get('1.0', END)
+
+
+def execute_process():
+    session = requests.Session()
+    payload = {'UserName': one_username[0:-1], 'Password': one_password[0:-1]}
+    s = session.post("https://www.discorr.com/Login/Login", data=payload)
+    s = session.get('https://www.discorr.com/Invoice')
+    soup = bs(s.text, 'html.parser')
+    all_urls = (soup.find_all('a', href=True))
+    urls = []
+    for url in all_urls:
+        href = url['href']
+        if '/Invoice/Edit/' in href:
+            urls.append(href)
+    drr_site = 'https://www.discorr.com'
+    urls = prepend(urls, drr_site)
+
+    global ro_list
+    ro_list = []
+    global partno_list
+    partno_list = []
+    global qty_list
+    qty_list = []
+    counter = 0
+
+    for url in urls:
+        s = session.get(url)
+        soup = bs(s.content, "html.parser")
+        ro_soup = (soup.find_all('input', value=True, id="RONumber"))
+        val = soup.input
+        for val in ro_soup:
+            value = val['value']
+            ro_list.append(value)
+        value_soup = (soup.find_all('script', language='javascript'))
+        value_soup = str(value_soup)
+        value_soup = value_soup.split(",")
+        value_soup_part_no = [i for i in value_soup if 'partNo' in i]
+        value_soup_qty = [i for i in value_soup if 'qty' in i]
+        value_soup_part_no = [i[10:] for i in value_soup_part_no]
+        value_soup_part_no = [i[:-1] for i in value_soup_part_no]
+        value_soup_qty = [i[6:] for i in value_soup_qty]
+        partno_list.append(value_soup_part_no)
+        qty_list.append(value_soup_qty)
+        print('Finished loop number: ', counter)
+        counter += 1
+
+    key = 0
+    counter = 0
+
+    for i in partno_list:
+        key = str(key)
+        i.insert(0, key)
+        key = int(key)
+        key += 1
+        print('Finished loop number: ', counter)
+        counter += 1
+
+    global partno_dict
+    partno_dict = {item[0]: item[1:] for item in partno_list}
+
+    key = 0
+    counter = 0
+
+    for i in qty_list:
+        key = str(key)
+        i.insert(0, key)
+        key = int(key)
+        key += 1
+        print('Finished loop number: ', counter)
+        counter += 1
+
+    global qty_dict
+    qty_dict = {item[0]: item[1:] for item in qty_list}
+
+    global web
+    web = Browser()
+    web.go_to('https://prod.discorr.com/')
+    sleep(2)
+    web.type(two_username)
+    web.click("Password")
+    web.type(two_password)
+    web.press(web.Key.ENTER)
+    sleep(2)
+    web.click("Accept")
+    global invoice_number
+    invoice_number = 0
+    invoice_number = str(invoice_number)
+    enter_invoices()
+
+
+def enter_invoices():
+    if len(partno_dict) > int(invoice_number):
+        ro_num = ro_list[int(invoice_number)]
+        web.click('Create Invoice')
+        sleep(2)
+        web.type(ro_num)
+        sleep(.5)
+        add_part()
+    else:
+        print("We made it!")
+        exit()
+
+
+def add_part():
+    invoice = partno_dict[invoice_number]
+    global input_partno
+    input_partno = []
+    for part in partno_dict[invoice_number]:
+        if len(input_partno) == 0:
+            web.click('Search Part')
+            sleep(.5)
+            web.type(part)
+            sleep(.5)
+            web.press(web.Key.ENTER)
+            sleep(.5)
+            input_partno.append(part)
+            if len(invoice) == 0:
+                add_qty()
+            else:
+                invoice.pop(0)
+                add_qty()
+
+
+def add_qty():
+    invoice = qty_dict[invoice_number]
+    global input_qty
+    input_qty = []
+    for qty in qty_dict[invoice_number]:
+        if len(input_qty) == 0:
+            sleep(1)
+            web.type(qty)
+            sleep(1)
+            web.click("Add")
+            sleep(.5)
+            input_qty.append(qty)
+            if len(invoice) == 1:
+                print(input_partno)
+                print(input_qty)
+                sleep(.5)
+                next_invoice()
+            else:
+                print(input_partno)
+                print(input_qty)
+                invoice.pop(0)
+                sleep(.5)
+                add_part()
+
+
+def next_invoice():
+    global invoice_number
+    invoice_number = str(invoice_number)
+    invoice_number = int(invoice_number) + 1
+    invoice_number = str(invoice_number)
+    web.click("Save Invoice")
+    sleep(1)
+    web.click("Back To Search")
+    sleep(2)
+    enter_invoices()
+
+
+root = Tk()
+root.title('Active Invoice Scraper')
+
+execute_button = Button(root, text='Execute Process', padx=20, pady=10, command=button_func)
+
+loginbox_label1 = Label(root, text='Insert Email For DRR 1.0 Here:')
+loginbox_label2 = Label(root, text='Insert Email for DRR 2.0 Here:')
+password_label1 = Label(root, text='Insert Password for DRR 1.0 Here:')
+password_label2 = Label(root, text='Insert Password for DRR 2.0 Here:')
+
+drr_1_loginbox = Text(root, height=2, width=30)
+drr_1_password = Text(root, height=2, width=30)
+drr_2_loginbox = Text(root, height=2, width=30)
+drr_2_password = Text(root, height=2, width=30)
+
+
+drr_1_loginbox.grid(row=1, column=0, pady=4, padx=8)
+drr_2_loginbox.grid(row=1, column=2, pady=4, padx=8)
+drr_1_password.grid(row=3, column=0, pady=4, padx=8)
+drr_2_password.grid(row=3, column=2, pady=4, padx=8)
+loginbox_label1.grid(row=0, column=0, pady=8, padx=8)
+loginbox_label2.grid(row=0, column=2, pady=8, padx=8)
+password_label1.grid(row=2, column=0, pady=4, padx=8)
+password_label2.grid(row=2, column=2, pady=4, padx=8)
+execute_button.grid(row=5, column=1, pady=4, padx=8)
+
+root.geometry('669x208')
+root.config(background='grey')
+root.mainloop()
